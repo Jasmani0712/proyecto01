@@ -221,9 +221,11 @@ export default function FormNewOrder() {
 
   // These calculations will automatically update whenever `selectedProds` changes
   const selectedProdsLength = selectedProds.length;
+  console.warn("selectedProdsLength: ", selectedProdsLength); //jz 0
   const allProdsHaveMinCant = selectedProds.every(
     (prod) => Number(prod.cantProducto) >= 720,
   );
+  console.warn("allProdsHaveMinCant: ", allProdsHaveMinCant); //jz TRUE
   const hasGalletones = selectedProds.some((sp) =>
     getGalletonesIds().includes(sp.idProducto),
   );
@@ -252,6 +254,7 @@ export default function FormNewOrder() {
     );
 
   useEffect(() => {
+    console.log("Selected Prods changed: ", selectedProds);
     const UsuarioAct = Cookies.get("userAuth");
     if (UsuarioAct) {
       const parsed = JSON.parse(UsuarioAct);
@@ -296,7 +299,7 @@ export default function FormNewOrder() {
             ); 
 
              */
-            //console.log("Productos disponibles", filtered);
+            console.log("Productos disponibles", filtered);
             setAvailable(filtered);
             setAuxProducts(filtered);
             productRef.current = filtered;
@@ -350,7 +353,7 @@ export default function FormNewOrder() {
             (product) => product.cant_Actual > 0 && product.activo === 1
           );
            */
-          //console.log("Productos disponibles", filtered);
+          console.log("Productos disponibles", filtered);
           setAvailable(filtered);
           setAuxProducts(filtered);
           productRef.current = filtered;
@@ -543,6 +546,7 @@ export default function FormNewOrder() {
       }
 
       setSelectedProds([...selectedProds, prodObj]);
+      console.warn("selectedProds after adding: ", [...selectedProds, prodObj]); //jz
     }
     setCurrentProd(prodObj);
     setIsProduct(true);
@@ -763,6 +767,7 @@ export default function FormNewOrder() {
   };
 
   function saveOrder(availables) {
+    console.warn("saveOrder. availables:", availables);
     const everyGalleton = meetsExactGalletonCondition;
     const validatedOrder = structureOrder(availables);
     validatedOrder.then(async (res) => {
@@ -809,6 +814,7 @@ observaciones: ${observaciones}`
           },
           productos: selectedProds,
         };
+        // console.warn("Productos para pedido", selectedProds);
 
         console.log("Objeto pedido", objPedido);
         //setPedidoFinal(ped);
@@ -890,6 +896,7 @@ observaciones: ${observaciones}`
   }
 
   function saveSampleAndTransfer() {
+    console.warn("saveSampleAndTransfer");
     const total = selectedProds.reduce((accumulator, object) => {
       return accumulator + Number(object.totalProd);
     }, 0);
@@ -1001,33 +1008,35 @@ observaciones: ${observaciones}`
   }
 
   function validateProductLen() {
+    console.warn("validateProductLen");
     const validated = validateQuantities();
-    if (validated === 0) {
-      console.log("Es interior", isInterior);
-      if (selectedClient != "") {
-        if (selectedProds.length > 0) {
-          setAuxProds(selectedProds);
-          if (tipo == "normal") {
-            verifySeasonal();
-          } else {
-            saveSampleAndTransfer();
-          }
+    console.warn("validated: ", validated);
+    // if (validated === 0) {
+    console.log("Es interior", isInterior);
+    if (selectedClient != "") {
+      if (selectedProds.length > 0) {
+        setAuxProds(selectedProds);
+        if (tipo == "normal") {
+          verifySeasonal();
         } else {
-          setAlert("Seleccione al menos un producto por favor");
-          setIsAlert(true);
+          saveSampleAndTransfer();
         }
       } else {
-        setAlert("Seleccione un cliente por favor");
-
+        setAlert("Seleccione al menos un producto por favor");
         setIsAlert(true);
       }
     } else {
-      setAlert(
-        "Una de las cantidades seleccionadas no se encuentra disponible",
-      );
+      setAlert("Seleccione un cliente por favor");
 
       setIsAlert(true);
     }
+    // } else {
+    //   setAlert(
+    //     "Una de las cantidades seleccionadas no se encuentra disponible",
+    //   );
+
+    //   setIsAlert(true);
+    // }
   }
 
   async function processDiscounts() {
@@ -1059,6 +1068,11 @@ observaciones: ${observaciones}`
       );
       setDiscModalType(false);
       setSelectedProds(objDescNew.productosReprocesados);
+      console.warn(
+        "objDescNew.productosReprocesados: ",
+        objDescNew.productosReprocesados,
+      );
+
       setDiscModal(true);
     } else {
       const dType = await getDiscountType();
@@ -1109,8 +1123,9 @@ observaciones: ${observaciones}`
   }
 
   async function verifySeasonal() {
+    console.warn("verifySeasonal");
     if (seasonDiscountData.length > 0) {
-      console.log("AKI");
+      console.log("es seasonDiscountData.length > 0");
       const verified = verifySeasonalProduct(selectedProds, seasonDiscountData);
       if (verified) {
         setDiscModalType(false);
@@ -2347,4 +2362,4 @@ const tradObj = traditionalDiscounts(
 
 
  */
-//ORIGINAL
+2;
