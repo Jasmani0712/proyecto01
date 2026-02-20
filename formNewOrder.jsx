@@ -226,6 +226,8 @@ export default function FormNewOrder() {
     (prod) => Number(prod.cantProducto) >= 720,
   );
   console.warn("allProdsHaveMinCant: ", allProdsHaveMinCant); //jz TRUE
+  // console.warn("clientes.issuper", clientes[0].issuper);
+
   const hasGalletones = selectedProds.some((sp) =>
     getGalletonesIds().includes(sp.idProducto),
   );
@@ -750,6 +752,8 @@ export default function FormNewOrder() {
   }
 
   function validateQuantities() {
+    console.warn("clientes.issuper", clientes[0].issuper);
+
     var errorList = 0;
     for (const product of selectedProds) {
       if (product.cantProducto > product.cant_Actual) {
@@ -768,6 +772,8 @@ export default function FormNewOrder() {
 
   function saveOrder(availables) {
     console.warn("saveOrder. availables:", availables);
+    console.warn("clientes.issuper save", clientes[0].issuper);
+
     const everyGalleton = meetsExactGalletonCondition;
     const validatedOrder = structureOrder(availables);
     validatedOrder.then(async (res) => {
@@ -815,7 +821,9 @@ observaciones: ${observaciones}`
           productos: selectedProds,
         };
         // console.warn("Productos para pedido", selectedProds);
-
+        // objPedido.productos.map((p) => {
+        //   p.cant_Actual = 34;
+        // });
         console.log("Objeto pedido", objPedido);
         //setPedidoFinal(ped);
 
@@ -826,6 +834,7 @@ observaciones: ${observaciones}`
           originalOrderItems:
             originalOrderItems.length > 0 ? originalOrderItems : undefined,
           supermarketSala: selectedSala || undefined,
+          clienteIssuper: clientes[0].issuper,
         };
         try {
           const processOrder = await createOrderTransaction(objSubmit);
@@ -884,7 +893,7 @@ observaciones: ${observaciones}`
             .toString()
             .includes("stock_nonnegative")
             ? "Uno de los productos ya no cuenta con la cantidad solicitada de stock"
-            : "Error en el Pedido";
+            : "Error en el Pedido.";
           setIsAlertSec(false);
           setAlert(errorMes);
           setIsAlert(true);
@@ -2362,4 +2371,3 @@ const tradObj = traditionalDiscounts(
 
 
  */
-2;
