@@ -1,0 +1,860 @@
+const logger = require("../logger-pino");
+const { client } = require("../postgressConn");
+const dbConnection = require("../server");
+const dateString = require("../services/dateServices");
+const { formatError } = require("../services/formatError");
+
+function getStores() {
+  let storeQuery = `select idAgencia + ' ' + nombre as Nombre, idAgencia from Agencias 
+    union select placa as Nombre, placa  from Vehiculos 
+    union select idBodega + ' ' + nombre as Nombre, idBodega from Bodegas`;
+
+  return new Promise((resolve, reject) => {
+    setTimeout(async () => {
+      const stores = await dbConnection.executeQuery(storeQuery);
+      resolve(JSON.stringify(stores.data));
+    }, 1000);
+  });
+}
+
+function getOnlyStores() {
+  let storeQuery = `select idAgencia + ' ' + nombre as Nombre, idAgencia from Agencias `;
+  return new Promise((resolve, reject) => {
+    setTimeout(async () => {
+      const stores = await dbConnection.executeQuery(storeQuery);
+      resolve(JSON.stringify(stores.data));
+    }, 1000);
+  });
+}
+
+function getUserStock(params) {
+  let stockQuery = `select a.*, c.idUsuario from Stock_Bodega a, Productos b, Usuarios c where a.idBodega=c.idAlmacen and b.idProducto=a.idProducto 
+  and c.idUsuario=${params.id} union 
+  select a.*, c.idUsuario from Stock_Agencia a, Productos b, Usuarios c where a.idAgencia=c.idAlmacen and b.idProducto=a.idProducto 
+  and c.idUsuario=${params.id} union 
+  select a.*, c.idUsuario from Stock_Agencia_Movil a, Productos b, Usuarios c where a.idVehiculo=c.idAlmacen and b.idProducto=a.idProducto 
+  and c.idUsuario=${params.id}`;
+
+  return new Promise((resolve, reject) => {
+    setTimeout(async () => {
+      const stores = await dbConnection.executeQuery(stockQuery);
+      resolve(JSON.stringify(stores.data));
+    }, 1000);
+  });
+}
+
+function updateProductStock(body) {
+  const dateResult = dateString();
+  const operator = body.accion === "add" ? "+" : "-";
+
+  return new Promise((resolve, reject) => {
+    if (body.productos.length > 0) {
+      if (body.accion === "add") {
+        body.productos.map((prod) => {
+          setTimeout(async () => {
+            let updateStockQuery = `
+            update Stock_Bodega set 
+            cant_Anterior=(select cant_Actual from Stock_Bodega where idProducto=${prod.idProducto} and idBodega='${body.idAlmacen}'), 
+            diferencia=${prod.cantProducto}, 
+            cant_Actual=(select cant_Actual from Stock_Bodega where idProducto=${prod.idProducto} and idBodega='${body.idAlmacen}') ${operator} ${prod.cantProducto},
+            fechaActualizacion='${dateResult}' where idProducto=${prod.idProducto} and idBodega='${body.idAlmacen}';
+          update Stock_Agencia set cant_Anterior=(select cant_Actual from Stock_Agencia where idProducto=${prod.idProducto} and idAgencia='${body.idAlmacen}'), 
+          diferencia=${prod.cantProducto}, cant_Actual=(select cant_Actual from Stock_Agencia where idProducto=${prod.idProducto} and idAgencia='${body.idAlmacen}') ${operator} ${prod.cantProducto},
+          fechaActualizacion='${dateResult}' where idProducto=${prod.idProducto} and idAgencia='${body.idAlmacen}'
+          update Stock_Agencia_Movil set cant_Anterior=(select cant_Actual from Stock_Agencia_Movil where idProducto=${prod.idProducto} and idVehiculo='${body.idAlmacen}'), 
+          diferencia=${prod.cantProducto}, cant_Actual=(select cant_Actual from Stock_Agencia_Movil where idProducto=${prod.idProducto} and idVehiculo='${body.idAlmacen}') ${operator} ${prod.cantProducto},
+          fechaActualizacion='${dateResult}' where idProducto=${prod.idProducto} and idVehiculo='${body.idAlmacen}'`;
+
+            const updated = await dbConnection.executeQuery(updateStockQuery);
+            resolve({
+              data: updated,
+              code: 200,
+            });
+          }, 700);
+        });
+      } else {
+        const verification = verifyStock(body);
+        verification
+          .then((response) => {
+            body.productos.map((prod) => {
+              setTimeout(async () => {
+                let updateStockQuery = `update Stock_Bodega set cant_Anterior=(select cant_Actual from Stock_Bodega where idProducto=${prod.idProducto} and idBodega='${body.idAlmacen}'), 
+            diferencia=${prod.cantProducto}, cant_Actual=(select cant_Actual from Stock_Bodega where idProducto=${prod.idProducto} and idBodega='${body.idAlmacen}') ${operator} ${prod.cantProducto},
+            fechaActualizacion='${dateResult}' where idProducto=${prod.idProducto} and idBodega='${body.idAlmacen}'
+            update Stock_Agencia set cant_Anterior=(select cant_Actual from Stock_Agencia where idProducto=${prod.idProducto} and idAgencia='${body.idAlmacen}'), 
+            diferencia=${prod.cantProducto}, cant_Actual=(select cant_Actual from Stock_Agencia where idProducto=${prod.idProducto} and idAgencia='${body.idAlmacen}') ${operator} ${prod.cantProducto},
+            fechaActualizacion='${dateResult}' where idProducto=${prod.idProducto} and idAgencia='${body.idAlmacen}'
+            update Stock_Agencia_Movil set cant_Anterior=(select cant_Actual from Stock_Agencia_Movil where idProducto=${prod.idProducto} and idVehiculo='${body.idAlmacen}'), 
+            diferencia=${prod.cantProducto}, cant_Actual=(select cant_Actual from Stock_Agencia_Movil where idProducto=${prod.idProducto} and idVehiculo='${body.idAlmacen}') ${operator} ${prod.cantProducto},
+            fechaActualizacion='${dateResult}' where idProducto=${prod.idProducto} and idVehiculo='${body.idAlmacen}'`;
+                const updated =
+                  await dbConnection.executeQuery(updateStockQuery);
+
+                if (updated.success) {
+                  console.log("Actualizado correctamente");
+                }
+                resolve({
+                  data: updated,
+                  code: 200,
+                });
+              }, 200);
+            });
+          })
+          .catch((error) => {
+            reject({
+              faltantes: error,
+              code: 200,
+            });
+          });
+      }
+    } else {
+      setTimeout(() => {
+        resolve(
+          JSON.stringify({
+            code: 200,
+            data: "No product to modify",
+          }),
+        );
+      }, 200);
+    }
+  });
+}
+
+async function verifyStock(body) {
+  return new Promise(async (resolve, reject) => {
+    var faltantes = 0;
+    var disponibles = 0;
+    for (const prod of body.productos) {
+      const validado = await getStockFromDBPos(
+        prod.idProducto,
+        body.idAlmacen,
+        prod.cantProducto,
+      );
+
+      if (validado.resto < 0) {
+        faltantes = faltantes + 1;
+      } else {
+        disponibles = disponibles + 1;
+      }
+    }
+    if (faltantes > 0) {
+      reject(false);
+    } else {
+      resolve(true);
+    }
+  });
+}
+
+async function getStockFromDB(idProducto, idAlmacen, cantProducto) {
+  return new Promise((resolve) => {
+    setTimeout(async () => {
+      let verifyQuery = `select cant_Actual-${cantProducto} as resto, cant_Actual as disponible from Stock_Bodega where idBodega='${idAlmacen}' and idProducto=${idProducto} union 
+        select cant_Actual-${cantProducto} as resto, cant_Actual as disponible from Stock_Agencia where idAgencia='${idAlmacen}' and idProducto=${idProducto} union
+        select cant_Actual-${cantProducto} as resto, cant_Actual as disponible from Stock_Agencia_Movil where idVehiculo='${idAlmacen}' and idProducto=${idProducto}`;
+      const verified = await dbConnection.executeQuery(verifyQuery);
+      resolve({
+        resto: verified.data[0][0].resto,
+        disponible: verified.data[0][0].disponible,
+      });
+    }, 200);
+  });
+}
+
+function verifyAvailability(body) {
+  return new Promise((resolve, reject) => {
+    body.productos.map((product) => {
+      setTimeout(async () => {
+        let verifyQuery = `select cant_Actual-${product.cantidad} as disponible from Stock_Bodega where idProducto=${product.idProducto} and idBodega='${product.idAlmacen}' 
+        union select cant_Actual-${product.cantidad} as disponible from Stock_Agencia where idProducto=${product.idProducto} and idAgencia='${product.idAlmacen}'
+        union select cant_Actual-${product.cantidad} as disponible from Stock_Agencia_Movil where idProducto=${product.idProducto} and idVehiculo='${product.idAlmacen}'`;
+        const available = await dbConnection.executeQuery(verifyQuery);
+        if (available.data[0][0].disponible > 0) {
+          reject({
+            message: "No hay",
+          });
+        }
+      }, 100);
+      resolve(available.data[0][0]);
+    });
+  });
+}
+
+function updateFullStock(body) {
+  return new Promise((resolve, reject) => {
+    body.products.map((pr) => {
+      setTimeout(async () => {
+        let updateQuery = `update Stock_Agencia set cant_Anterior=(select cant_Actual from Stock_Agencia 
+          where idProducto=${pr.idProducto} and idAgencia='${body.idAgencia}'), cant_Actual='${pr.cantProducto}', 
+          diferencia=abs(${pr.cantProducto}-cant_Actual), fechaActualizacion='${body.fechaHora}' where idProducto=${pr.idProducto} 
+            update Stock_Bodega set cant_Anterior=(select cant_Actual from Stock_Bodega 
+            where idProducto=${pr.idProducto} and idBodega='${body.idAgencia}'), cant_Actual='${pr.cantProducto}', 
+            diferencia=abs(${pr.cantProducto}-cant_Actual), fechaActualizacion='${body.fechaHora}' where idProducto=${pr.idProducto} 
+              update Stock_Agencia_Movil set cant_Anterior=(select cant_Actual from Stock_Agencia_Movil 
+              where idProducto=${pr.idProducto} and idVehiculo='${body.idAgencia}'), cant_Actual='${pr.cantProducto}', 
+              diferencia=abs(${pr.cantProducto}-cant_Actual), fechaActualizacion='${body.fechaHora}' where idProducto=${pr.idProducto}`;
+        const updated = await dbConnection.executeQuery(updateQuery);
+        resolve({
+          data: updated,
+          code: 200,
+        });
+      }, 100);
+    });
+  });
+}
+
+function getSalePoints(params) {
+  const pointQuery = `select * from PuntosDeVenta pdv inner join Sucursales sc on sc.idSucursal=pdv.idSucursal 
+  where sc.idString='${params.idAgencia}'`;
+
+  return new Promise((resolve, reject) => {
+    setTimeout(async () => {
+      const pointList = await dbConnection.executeQuery(pointQuery);
+      console.log("Lista lista", pointList);
+      if (pointList.success) {
+        resolve(pointList);
+      } else {
+        reject(pointList);
+      }
+    }, 100);
+  });
+}
+
+function getSalePointsAndStore(params) {
+  const pointQuery = ` select ag.nombre, pdv.nroPuntoDeVenta from Agencias ag 
+inner join Sucursales sc on ag.idAgencia=sc.idString 
+inner join PuntosDeVenta pdv on pdv.idSucursal=sc.idSucursal
+where sc.idString='${params.idAlmacen}' union 
+select ag.nombre, pdv.nroPuntoDeVenta from Bodegas ag 
+inner join Sucursales sc on ag.idBodega=sc.idString 
+inner join PuntosDeVenta pdv on pdv.idSucursal=sc.idSucursal
+where sc.idString='${params.idAlmacen}'
+`;
+
+  return new Promise((resolve, reject) => {
+    setTimeout(async () => {
+      const pointList = await dbConnection.executeQuery(pointQuery);
+
+      if (pointList.success) {
+        resolve(pointList);
+      } else {
+        reject(pointList);
+      }
+    }, 100);
+  });
+}
+
+//POSTGRES
+
+function getStoresPos() {
+  let storeQuery = `select "idAgencia" || ' ' || nombre as "Nombre", "idAgencia" from Agencias 
+  union select placa as Nombre, placa  from Vehiculos where activo=1 
+  union select "idBodega" || ' ' || nombre as "Nombre", "idBodega" from Bodegas
+  union select "idOficina" || ' ' || nombre as "Nombre", "idOficina" from oficinas  order by "Nombre" desc`;
+  return new Promise((resolve, reject) => {
+    setTimeout(async () => {
+      const stores = await client.query(storeQuery);
+      resolve(JSON.stringify(stores.rows));
+    }, 1000);
+  });
+}
+
+function getOnlyStoresPos() {
+  let storeQuery = `select "idAgencia" || ' ' || nombre as "Nombre", "idAgencia", "idDepto" from Agencias 
+  union select "idOficina" || ' ' || nombre as "Nombre", "idOficina" as "idAgencia", "idDepto" from Oficinas order by "idAgencia" asc `;
+  return new Promise((resolve, reject) => {
+    setTimeout(async () => {
+      const stores = await client.query(storeQuery);
+      resolve(JSON.stringify(stores.rows));
+    }, 100);
+  });
+}
+
+function getUserStockPos(params) {
+  let stockQuery = `select a.*, c."idUsuario" from Stock_Bodega a, Productos b, Usuarios c where a."idBodega"=c."idAlmacen" and b."idProducto"=a."idProducto" 
+  and c."idUsuario"=${params.id} union 
+  select a.*, c."idUsuario" from Stock_Agencia a, Productos b, Usuarios c where a."idAgencia"=c."idAlmacen" and b."idProducto"=a."idProducto" 
+  and c."idUsuario"=${params.id} union 
+  select a.*, c."idUsuario" from Stock_Agencia_Movil a, Productos b, Usuarios c where a."idVehiculo"=c."idAlmacen" and b."idProducto"=a."idProducto" 
+  and c."idUsuario"=${params.id}`;
+  return new Promise((resolve, reject) => {
+    setTimeout(async () => {
+      const stores = await client.query(stockQuery);
+      resolve(JSON.stringify(stores.rows));
+    }, 100);
+  });
+}
+
+async function updateProductStockPosAlt(body, isTransaction) {
+  console.log("BODY", body);
+  if (body.productos.length > 0) {
+    const TiposStock = Object.freeze({
+      AGENCIA: {
+        identificador: "AG",
+        idName: "idAgencia",
+        tableName: "Stock_Agencia",
+      },
+      BODEGA: {
+        identificador: "AL",
+        idName: "idBodega",
+        tableName: "Stock_Bodega",
+      },
+      MOVIL: {
+        identificador: "-",
+        idName: "idVehiculo",
+        tableName: "Stock_Agencia_Movil",
+      },
+      OFICINA: {
+        identificador: "OF",
+        idName: "idAgencia",
+        tableName: "Stock_Agencia",
+      },
+    });
+    const dateResult = dateString();
+    const operator = body.accion === "add" ? "+" : "-";
+    const typeStock = body.idAlmacen.includes(TiposStock.AGENCIA.identificador)
+      ? TiposStock.AGENCIA
+      : body.idAlmacen.includes(TiposStock.BODEGA.identificador)
+        ? TiposStock.BODEGA
+        : body.idAlmacen.includes(TiposStock.OFICINA.identificador)
+          ? TiposStock.OFICINA
+          : TiposStock.MOVIL;
+
+    const queries = [];
+    for (const prod of body.productos) {
+      const updateStockQuery = `
+      UPDATE ${typeStock.tableName}
+        SET "cant_Anterior" = "cant_Actual",
+            "diferencia" = ${prod.cantProducto},
+            "cant_Actual" = "cant_Actual" ${operator} ${prod.cantProducto},
+            "fechaActualizacion" = '${dateResult}'
+        WHERE "idProducto" = ${prod.idProducto} AND "${typeStock.idName}" = '${body.idAlmacen}'
+      `;
+      queries.push(updateStockQuery);
+      const logQuery = `
+      INSERT INTO log_stock_change ("idProducto", "cantidadProducto", "idAgencia", "fechaHora", "accion", "detalle")
+      VALUES (${prod.idProducto}, ${prod.cantProducto}, '${body.idAlmacen}', '${dateResult}', '${operator}', '${body.detalle}')
+      returning "idStockChange"`;
+      queries.push(logQuery);
+    }
+
+    try {
+      !isTransaction && (await client.query("BEGIN"));
+      const resultArray = await Promise.all(
+        queries.map((q) => client.query(q)),
+      );
+
+      const filtered = resultArray.filter(
+        (result) => result.command === "INSERT",
+      );
+      console.log("filtered", filtered);
+      const arrayIds = [];
+      for (const filt of filtered) {
+        console.log("Valueee", filt.rows);
+        arrayIds.push(filt.rows[0].idStockChange);
+      }
+      console.log("Array ids", arrayIds);
+      !isTransaction && (await client.query("COMMIT"));
+      return {
+        data: arrayIds,
+        code: 200,
+      };
+    } catch (err) {
+      logger.error("updateProductStockPos: " + formatError(err));
+
+      !isTransaction && (await client.query("ROLLBACK"));
+      console.log("error", err);
+      return {
+        error: err.message || err,
+        code: 500,
+      };
+    }
+  } else {
+    //logger.error("updateProductStockPos: No product to update");
+
+    const arrayIds = [];
+    return {
+      message: "No product to update",
+      data: arrayIds,
+      code: 200,
+    };
+  }
+}
+
+async function updateProductStockPos(body, isTransaction, clienteIssuper) {
+  console.log("Store Model: Body ", body);
+  console.log("clienteIssuper: ", clienteIssuper);
+  const arrayIds = [];
+  try {
+    if (body.productos.length > 0) {
+      const TiposStock = Object.freeze({
+        AGENCIA: {
+          identificador: "AG",
+          idName: "idAgencia",
+          tableName: "Stock_Agencia",
+        },
+        BODEGA: {
+          identificador: "AL",
+          idName: "idBodega",
+          tableName: "Stock_Bodega",
+        },
+        MOVIL: {
+          identificador: "-",
+          idName: "idVehiculo",
+          tableName: "Stock_Agencia_Movil",
+        },
+        OFICINA: {
+          identificador: "OF",
+          idName: "idAgencia",
+          tableName: "Stock_Agencia",
+        },
+      });
+      const dateResult = dateString();
+      const operator = body.accion === "add" ? "+" : "-";
+      const typeStock = body.idAlmacen.includes(
+        TiposStock.AGENCIA.identificador,
+      )
+        ? TiposStock.AGENCIA
+        : body.idAlmacen.includes(TiposStock.BODEGA.identificador)
+          ? TiposStock.BODEGA
+          : body.idAlmacen.includes(TiposStock.OFICINA.identificador)
+            ? TiposStock.OFICINA
+            : TiposStock.MOVIL;
+
+      !isTransaction && (await client.query("BEGIN"));
+      for (const prod of body.productos) {
+        let updateStockQueryAlt = "";
+        if (clienteIssuper === 1) {
+          console.log("ES SUPER", clienteIssuper);
+          updateStockQueryAlt = `
+            UPDATE ${typeStock.tableName}
+            SET "cant_Anterior" = "cant_Actual",
+                "diferencia" = $1,
+                "cant_Actual" = ROUND(("cant_Actual" ${operator} $2)::numeric, 3),
+                "fechaActualizacion" = $3
+            WHERE "idProducto" = $4 AND "${typeStock.idName}" = $5
+            AND "cant_Actual" >= $2;
+          `;
+        } else {
+          console.log("NO ES SUPER", clienteIssuper);
+          updateStockQueryAlt = `
+          UPDATE ${typeStock.tableName}
+          SET "cant_Anterior" = "cant_Actual",
+              "diferencia" = $1,
+              "cant_Actual" = ROUND(("cant_Actual" ${operator} $2)::numeric, 3),
+              "fechaActualizacion" = $3
+          WHERE "idProducto" = $4 AND "${typeStock.idName}" = $5;
+          `;
+        }
+        const logQueryAlt = `
+        INSERT INTO log_stock_change ("idProducto", "cantidadProducto", "idAgencia", "fechaHora", "accion", "detalle",id_usuario)
+        VALUES ($1, $2, $3, $4, $5, $6,$7)
+        RETURNING "idStockChange";
+      `;
+
+        const resultQuery = await client.query(updateStockQueryAlt, [
+          Number(prod.cantProducto),
+          Number(prod.cantProducto),
+          dateResult,
+          prod.idProducto,
+          body.idAlmacen,
+        ]);
+        console.log("Resultado del query", resultQuery);
+
+        if (clienteIssuper === 1) {
+          if (resultQuery.rowCount == 0) {
+            console.log("Stock insuficiente para el producto", prod.idProducto);
+            continue; // no descuenta pero sigue con el proceso
+          }
+        } else {
+          if (resultQuery.rowCount == 0) {
+            !isTransaction && (await client.query("ROLLBACK"));
+            return {
+              error: "No se alteró ningún producto",
+              code: 500,
+            };
+          }
+        }
+
+        const logResult = await client.query(logQueryAlt, [
+          prod.idProducto,
+          prod.cantProducto,
+          body.idAlmacen,
+          dateResult,
+          operator,
+          body.detalle,
+          body.idUsuario ?? null,
+        ]);
+        arrayIds.push(logResult.rows[0].idStockChange);
+      }
+
+      !isTransaction && (await client.query("COMMIT"));
+      return {
+        data: arrayIds,
+        code: 200,
+      };
+    } else {
+      //logger.error("updateProductStockPos: No product to update");
+      return {
+        message: "No product to update",
+        data: arrayIds,
+        code: 200,
+      };
+    }
+  } catch (err) {
+    logger.error("updateProductStockPos: " + formatError(err));
+    console.log("error", err);
+    !isTransaction && (await client.query("ROLLBACK"));
+    return {
+      error: err.message || err,
+      code: 500,
+    };
+  }
+}
+
+async function updateLogStockDetailsAlt(detalle, idsCreados) {
+  if (idsCreados > 0) {
+    console.log("Ids creados", idsCreados);
+    const queryArray = [];
+    for (const id of idsCreados) {
+      const updateQuery = `update log_stock_change set detalle='${detalle}' where "idStockChange"=${id}`;
+      console.log("Updateando stock query log", updateQuery);
+      queryArray.push(updateQuery);
+    }
+    try {
+      await client.query("BEGIN");
+      await Promise.all(queryArray.map((q) => client.query(q)));
+      await client.query("COMMIT");
+      return {
+        data: [],
+        code: 200,
+      };
+    } catch (err) {
+      await client.query("ROLLBACK");
+      return {
+        error: err.message || err,
+        code: 500,
+      };
+    }
+  } else {
+    return {
+      data: [],
+      code: 200,
+    };
+  }
+}
+
+async function updateLogStockDetails(detalle, idsCreados) {
+  console.log("IDS CREADOS", idsCreados, detalle);
+  try {
+    if (idsCreados.length > 0) {
+      await client.query("BEGIN");
+      for (const id of idsCreados) {
+        const updateQuery = `update log_stock_change set detalle=$1 where "idStockChange"=$2`;
+        console.log("Updateando stock query log", updateQuery);
+        const updated = await client.query(updateQuery, [detalle, id]);
+        console.log("UPDATED ROWS", updated);
+      }
+      await client.query("COMMIT");
+      return {
+        data: [],
+        code: 200,
+      };
+    } else {
+      return {
+        data: [],
+        code: 200,
+      };
+    }
+  } catch (err) {
+    await client.query("ROLLBACK");
+    return {
+      error: err.message || err,
+      code: 500,
+    };
+  }
+}
+
+function verifyAvailabilityPos(body) {
+  return new Promise((resolve, reject) => {
+    body.productos.map((product) => {
+      setTimeout(async () => {
+        let verifyQuery = `select "cant_Actual"-${product.cantidad} as disponible from Stock_Bodega where "idProducto"=${product.idProducto} and "idBodega"='${product.idAlmacen}' 
+        union select "cant_Actual"-${product.cantidad} as disponible from Stock_Agencia where "idProducto"=${product.idProducto} and "idAgencia"='${product.idAlmacen}'
+        union select "cant_Actual"-${product.cantidad} as disponible from Stock_Agencia_Movil where "idProducto"=${product.idProducto} and "idVehiculo"='${product.idAlmacen}'`;
+        const available = await client.query(verifyQuery);
+        if (available.rows[0].disponible > 0) {
+          reject({
+            message: "No hay",
+          });
+        }
+      }, 100);
+      resolve(available.rows);
+    });
+  });
+}
+
+async function getStockFromDBPos(idProducto, idAlmacen, cantProducto) {
+  return new Promise((resolve) => {
+    console.log(`Getting stock from product ${idProducto}...`);
+    setTimeout(async () => {
+      let verifyQuery = `select "cant_Actual"-${cantProducto} as resto, "cant_Actual" as disponible from Stock_Bodega where "idBodega"='${idAlmacen}' and "idProducto"=${idProducto} union 
+        select "cant_Actual"-${cantProducto} as resto, "cant_Actual" as disponible from Stock_Agencia where "idAgencia"='${idAlmacen}' and "idProducto"=${idProducto} union
+        select "cant_Actual"-${cantProducto} as resto, "cant_Actual" as disponible from Stock_Agencia_Movil where "idVehiculo"='${idAlmacen}' and "idProducto"=${idProducto}`;
+      const verified = await client.query(verifyQuery);
+      console.log("Flag query", verifyQuery);
+      resolve({
+        resto: verified.rows[0].resto,
+        disponible: verified.rows[0].disponible,
+      });
+    }, 200);
+  });
+}
+
+async function updateFullStockPos(body) {
+  try {
+    const storeType =
+      body.idAgencia.includes("AG") || body.idAgencia.includes("OF")
+        ? "stock_agencia"
+        : body.idAgencia.includes("AL")
+          ? "stock_bodega"
+          : "stock_agencia_movil";
+
+    const storeId =
+      body.idAgencia.includes("AG") || body.idAgencia.includes("OF")
+        ? "idAgencia"
+        : body.idAgencia.includes("AL")
+          ? "idBodega"
+          : "idVehiculo";
+
+    const results = await Promise.all(
+      body.products.map(async (pr) => {
+        const updateQuery = `
+          UPDATE ${storeType}
+          SET "cant_Anterior" = (SELECT "cant_Actual" FROM ${storeType} WHERE "idProducto" = $1 AND ${storeId} = $2),
+              "cant_Actual" = $3,
+              diferencia = ABS($3 - "cant_Actual"),
+              "fechaActualizacion" = $4
+          WHERE "idProducto" = $1 AND ${storeId} = $2;
+        `;
+
+        const cantidad = pr.cantProducto ?? pr.cantidad;
+        const values = [
+          pr.idProducto,
+          body.idAgencia,
+          cantidad,
+          body.fechaHora,
+        ];
+        return client.query(updateQuery, values);
+      }),
+    );
+
+    return {
+      data: results.map((r) => r.rows),
+      code: 200,
+    };
+  } catch (err) {
+    console.error("Error full stock", err);
+    return Promise.reject(err);
+  }
+}
+
+function getSalePointsPos(params) {
+  const pointQuery = `select * from PuntosDeVenta pdv inner join Sucursales sc on sc."idSucursal"=pdv."idSucursal" 
+  where sc."idString"='${params.idAgencia}'`;
+
+  return new Promise((resolve, reject) => {
+    setTimeout(async () => {
+      const pointList = await client.query(pointQuery);
+
+      try {
+        resolve(pointList.rows);
+      } catch (err) {
+        reject(err);
+      }
+    }, 100);
+  });
+}
+
+function getSalePointsAndStorePos(params) {
+  const pointQuery = ` select ag.nombre, pdv."nroPuntoDeVenta", ag."idAgencia" as "idAgencia" from Agencias ag 
+inner join Sucursales sc on ag."idAgencia"=sc."idString" 
+inner join PuntosDeVenta pdv on pdv."idSucursal"=sc."idSucursal"
+where sc."idString"='${params.idAlmacen}' union 
+select ag.nombre, pdv."nroPuntoDeVenta", ag."idBodega" as "idAgencia" from Bodegas ag 
+inner join Sucursales sc on ag."idBodega"=sc."idString" 
+inner join PuntosDeVenta pdv on pdv."idSucursal"=sc."idSucursal"
+where sc."idString"='${params.idAlmacen}'
+`;
+
+  return new Promise((resolve, reject) => {
+    setTimeout(async () => {
+      const pointList = await client.query(pointQuery);
+
+      try {
+        resolve(pointList.rows);
+      } catch (err) {
+        reject(pointList);
+      }
+    }, 100);
+  });
+}
+
+function getMobileSalePointsPos(params) {
+  var pointQuery;
+  if (params.idAgencia != "") {
+    pointQuery = `select "idAgencia", "idSucursal","nroPuntoDeVenta" from pdvAgMovil pa 
+    inner join puntosdeventa pdv on pdv."idPuntoDeVenta"=pa.pdv where "idAgencia"='${params.idAgencia}';`;
+  } else {
+    pointQuery = `select "idAgencia", "idSucursal","nroPuntoDeVenta" from pdvAgMovil pa 
+    inner join puntosdeventa pdv on pdv."idPuntoDeVenta"=pa.pdv;`;
+  }
+  return new Promise((resolve, reject) => {
+    setTimeout(async () => {
+      console.log("Point query", pointQuery);
+      try {
+        const pointList = await client.query(pointQuery);
+        resolve(pointList.rows);
+      } catch (err) {
+        reject(err);
+      }
+    }, 100);
+  });
+}
+
+function getAllStores() {
+  const pointQuery = `select "idAgencia" as idAgencia, "nombre", direccion, "idDepto" from Agencias union
+  select "idBodega" as idAgencia, nombre, direccion, "idDepto" from Bodegas union
+  select "placa" as "idAgencia", placa as nombre, 'Sin Direccion' as direccion, "idDepto" from Vehiculos union
+  select "idOficina" as idAgencia, nombre, direccion, "idDepto" from Oficinas order by nombre asc`;
+  return new Promise((resolve, reject) => {
+    setTimeout(async () => {
+      const pointList = await client.query(pointQuery);
+      try {
+        resolve(pointList.rows);
+      } catch (err) {
+        reject(err);
+      }
+    }, 100);
+  });
+}
+
+async function transactionOfUpdateStocks(bodies, isTransaction) {
+  try {
+    console.log("BODIES EN TRANSACTION", bodies);
+    !isTransaction && (await client.query("BEGIN"));
+    const results = [];
+    for (const body of bodies) {
+      console.log("Body", body);
+      const TiposStock = Object.freeze({
+        AGENCIA: {
+          identificador: "AG",
+          idName: "idAgencia",
+          tableName: "Stock_Agencia",
+        },
+        BODEGA: {
+          identificador: "AL",
+          idName: "idBodega",
+          tableName: "Stock_Bodega",
+        },
+        MOVIL: {
+          identificador: "-",
+          idName: "idVehiculo",
+          tableName: "Stock_Agencia_Movil",
+        },
+        OFICINA: {
+          identificador: "OF",
+          idName: "idAgencia",
+          tableName: "Stock_Agencia",
+        },
+      });
+      const dateResult = dateString();
+      const operator = body.accion === "add" ? "+" : "-";
+      console.log(operator == "+" ? "Sumando stock" : "Restando Stock");
+      const typeStock = body.idAlmacen.includes(
+        TiposStock.AGENCIA.identificador,
+      )
+        ? TiposStock.AGENCIA
+        : body.idAlmacen.includes(TiposStock.BODEGA.identificador)
+          ? TiposStock.BODEGA
+          : body.idAlmacen.includes(TiposStock.OFICINA.identificador)
+            ? TiposStock.OFICINA
+            : TiposStock.MOVIL;
+
+      const queries = [];
+      for (const prod of body.productos) {
+        const updateStockQuery = `
+          UPDATE ${typeStock.tableName}
+            SET "cant_Anterior" = "cant_Actual",
+                "diferencia" = ${prod.cantProducto},
+                "cant_Actual" = ROUND(("cant_Actual" ${operator} ${prod.cantProducto})::numeric, 3),
+                "fechaActualizacion" = '${dateResult}'
+            WHERE "idProducto" = ${prod.idProducto} AND "${typeStock.idName}" = '${body.idAlmacen}'
+          `;
+        const updated = await client.query(updateStockQuery);
+        if (updated.rowCount === 0) {
+          throw new Error("No se actualizó ningún producto.");
+        }
+        const logQuery = `
+          INSERT INTO log_stock_change ("idProducto", "cantidadProducto", "idAgencia", "fechaHora", "accion", "detalle", id_usuario)
+          VALUES (${prod.idProducto}, ${prod.cantProducto}, '${
+            body.idAlmacen
+          }', '${dateResult}', '${operator}', '${body.detalle}', ${
+            body.idUsuario ?? null
+          })
+          `;
+        await client.query(logQuery);
+      }
+      results.push(body);
+    }
+    !isTransaction && (await client.query("COMMIT"));
+    return {
+      data: results,
+      code: 200,
+    };
+  } catch (err) {
+    !isTransaction && (await client.query("ROLLBACK"));
+    console.log("error", err);
+    return {
+      error: err.message || err,
+      code: 400,
+    };
+  }
+}
+
+async function getSupermarketSalas() {
+  try {
+    const query = `SELECT id, nombre as name, departamento as department, cadena as chain, activo as active
+                   FROM salas_supermercado
+                   WHERE activo = true
+                   ORDER BY departamento, nombre`;
+    const result = await client.query(query);
+    return result.rows;
+  } catch (error) {
+    console.log("Error al obtener salas de supermercado", error);
+    throw error;
+  }
+}
+
+module.exports = {
+  getStores,
+  getUserStock,
+  verifyAvailability,
+  updateProductStock,
+  updateFullStock,
+  getOnlyStores,
+  getSalePoints,
+  getSalePointsAndStore,
+  getStoresPos,
+  getOnlyStoresPos,
+  getUserStockPos,
+  updateProductStockPos,
+  verifyAvailabilityPos,
+  updateFullStockPos,
+  getSalePointsPos,
+  getSalePointsAndStorePos,
+  getMobileSalePointsPos,
+  getAllStores,
+  transactionOfUpdateStocks,
+  updateLogStockDetails,
+  getSupermarketSalas,
+};
